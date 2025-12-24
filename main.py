@@ -5,6 +5,7 @@ import torch.nn as nn
 from torchaudio import transforms, datasets
 import io
 import soundfile as sf
+import streamlit as st
 
 
 class CheckAudio(nn.Module):
@@ -41,10 +42,10 @@ transform = transforms.MelSpectrogram(
 )
 
 max_len = 500
-genres = torch.load('labels.pth')
+genres = torch.load('labels_gtzan.pth')
 index_to_labels = {ind: lab for ind, lab in enumerate(genres)}
 model = CheckAudio()
-model.load_state_dict(torch.load('model (1).pth', map_location=device))
+model.load_state_dict(torch.load('model_gtzan (1).pth', map_location=device))
 model.to(device)
 model.eval()
 
@@ -69,36 +70,34 @@ def change_audio(waveform, sample_rate):
 audio_app = FastAPI()
 
 
-@audio_app.post('/predict/')
-async def check_image(file: UploadFile = File(...)):
+st.title('GTZAN MUSIC JANR')
+st.text('Загрузите аудиофайл')
+
+audio_file = st.file_uploader('Выбери файл', type='wav')
+
+if not audio_file:
+    st.warning('Загрузите .wav файл')
+else:
+    st.audio(audio_file)
+
+if st.button('Разпознать'):
     try:
-        data = await file.read()
-
+        data = audio_file.read()
         if not data:
-            raise HTTPException(status_code =400, detail='Файл кошулган жок')
+            raise HTTPException(status_code=400, detail='Файл пустой')
 
-
-        wf, sr = sf.read(io.BytesIO(data), dtype='float32')
-        wf = torch.tensor(wf).T
-
+        wf, sr = sf.read(io.BytesIO(data),dtype='float32')
+        wf = torch.tensor(wf)
 
         spec = change_audio(wf, sr).unsqueeze(0).to(device)
 
         with torch.no_grad():
             y_pred = model(spec)
-            pred = torch.argmax(y_pred, dim=1).item()
-
-
-        return {
-            "Индекс": pred,
-            "Жанр": index_to_labels[pred]
-        }
-
+            pred_ind = torch.argmax(y_pred, dim=1).item()
+            pred_class = index_to_labels[pred_ind]
+            st.write({'Индекс':pred_ind, 'Класс': pred_class})
 
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        st.exception(f'{e}')
 
-
-if __name__ == "__main__":
-    uvicorn.run(audio_app, host='127.0.0.1', port=8002)
